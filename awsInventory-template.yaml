@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Lambda to generate Inventory Report of AWS Resources in Account"
+Parameters:
+  pInventoryS3BucketName:
+    Default: ""
+    Description: "Enter a valid and unique S3 Bucket Name to Store Inventory data"
+    Type: String
+  pLambdaSourceS3BucketName:
+    Default: ""
+    Description: "Enter the S3 Bucket Name hosting source Lambda .zip file"
+    Type: String
+  pLambdaSourceFileName:
+    Default: ""
+    Description: "Enter the .zip file name"
+    Type: String      
+  pJobSchedule:
+    Default: "cron(0 12 * * ? *)"
+    Description: "Enter a valid cron job time to execute "
+    Type: String    
+  pLambdaTimeOut:
+    Default: 300
+    Description: "Provide Time in seconds before Lambda timesout"
+    Type: Number
+  pLambdaAllocatedMemory:
+    Default: 512
+    Description: "Provide Memory size(MB) to allocate to Lambda Function"
+    Type: Number    
+Resources:
+  rS3InventoryBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref pInventoryS3BucketName
+      # BucketEncryption: 
+      #   ServerSideEncryptionConfiguration: 
+      #     - ServerSideEncryptionByDefault: "SSE-S3"
+
+
+  rLambdaInventoryExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "aws_lambda_inventory_execution_role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "sts:AssumeRole"
+            Principal:
+              Service: lambda.amazonaws.com
+      Path: /
+      Policies:
+        -
+          PolicyName: "aws_lambda_inventory_execution_policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:Describe*
+                  - s3:CreateBucket
+                  - s3:List*
+                  - s3:Get*
+                  - iam:List*
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Join [ "", ["arn:aws:s3:::", !Ref pInventoryS3BucketName,"/*"]]          
+                  
+  rAWSInventoryLambda:
+    Type: "AWS::Lambda::Function"
+    DependsOn: rLambdaInventoryExecutionRole
+    Properties:
+      Environment:
+        Variables:
+          bucketName: !Ref pInventoryS3BucketName
+      FunctionName: "AWSInventoryToCSVLambda"
+      Description: "Lambda Function to generate Invemtory data"
+      Handler: main.lambda_handler
+      Role: !GetAtt [ rLambdaInventoryExecutionRole, Arn ]
+      Code:
+        S3Bucket: !Ref pLambdaSourceS3BucketName
+        S3Key: !Ref pLambdaSourceFileName
+      Runtime: python3.6
+      Timeout: !Ref pLambdaTimeOut
+      MemorySize: !Ref pLambdaAllocatedMemory 
+
+  rCloudwatchScheduleEvent:
+    Type: "AWS::Events::Rule"
+    DependsOn: rAWSInventoryLambda
+    Properties:
+      Description: "Scheduled Cloudwatch event to Trigger a Lambda Function on a specific Schdule"
+      Name: "scheduled-aws-inventory"
+      Targets:  
+        - 
+          Arn: !GetAtt [rAWSInventoryLambda, Arn]
+          Id: "TargetLambdaFunction1"
+      ScheduleExpression: !Ref pJobSchedule

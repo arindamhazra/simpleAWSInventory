@@ -18,3 +18,7 @@ Parameters:
 4. cron schedule time(default 12 AM UTC everyday)
 5. Lambda Function Timeout(default is Max 300 Sec)
 6. Allocated Memory to Lambda Function(default 512 MB)
+
+Current Scope:
+1. Currently Lambda Function collects S3,IAM,EC2,VPC inventory details.
+2. More to come...
